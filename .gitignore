@@ -1,0 +1,11 @@
+# Node modules
+node_modules/
+
+# Editor directories and files
+.vscode/
+
+# Output
+batches.txt
+
+# Package lock files
+package-lock.json

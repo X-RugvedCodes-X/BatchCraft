@@ -1,0 +1,34 @@
+{
+  "name": "batchcraft",
+  "version": "1.0.0",
+  "description": "A Node.js CLI tool to batch video files into customizable time-based segments using FFmpeg.",
+  "main": "index.js",
+  "type": "commonjs",
+  "bin": {
+    "batchcraft": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [
+    "video",
+    "batch",
+    "ffmpeg",
+    "cli",
+    "video-batching",
+    "automation"
+  ],
+  "author": "Rugved",
+  "license": "MIT",
+  "dependencies": {
+    "fluent-ffmpeg": "^2.1.2",
+    "natural": "^6.2.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3"
+  },
+  "engines": {
+    "node": ">=14"
+  }
+}
