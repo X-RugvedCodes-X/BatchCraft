@@ -1,101 +1,137 @@
 const fs = require("fs");
 const path = require("path");
 const ffmpeg = require("fluent-ffmpeg");
-const natural = require("natural");
 const readline = require("readline");
+const naturalCompare = require("natural-compare-lite");  // ✅ Natural sorting
 
-const videoDir = "."; 
+const videoDir = ".";
 const batchFile = "batches.txt";
 
-function askUser(question) {
+// Ask user input
+function ask(question) {
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
   });
 
-  return new Promise(resolve => rl.question(question, ans => {
+  return new Promise(res => rl.question(question, ans => {
     rl.close();
-    resolve(ans);
+    res(ans);
   }));
 }
 
-async function getVideoDuration(filePath) {
+// Get video duration
+function getVideoDuration(filePath) {
   return new Promise((resolve, reject) => {
-    ffmpeg.ffprobe(filePath, (err, metadata) => {
+    ffmpeg.ffprobe(filePath, (err, data) => {
       if (err) return reject(err);
-      resolve(metadata.format.duration || 0);
+      resolve(data.format.duration || 0);
     });
   });
 }
 
-async function groupVideos(maxHours) {
-  const MAX_BATCH_DURATION = maxHours * 60 * 60; // Convert to seconds
-
-  const files = fs.readdirSync(videoDir).filter(file => file.endsWith(".mp4"));
-
-  // Sorting Logic is here 
-  files.sort(natural.compare);
-
-  let videoData = [];
-
-  for (const file of files) {
-    try {
-      let duration = await getVideoDuration(path.join(videoDir, file));
-      videoData.push({ name: file, duration });
-    } catch (error) {
-      console.error(`Error reading ${file}:`, error);
-    }
-  }
-
-  let totalDuration = videoData.reduce((sum, vid) => sum + vid.duration, 0);
-  let batches = [];
-  let currentBatch = [];
-  let currentBatchDuration = 0;
-
-  for (let video of videoData) {
-    if (currentBatchDuration + video.duration > MAX_BATCH_DURATION) {
-      batches.push({ videos: currentBatch, total: currentBatchDuration });
-      currentBatch = [];
-      currentBatchDuration = 0;
-    }
-    currentBatch.push(video);
-    currentBatchDuration += video.duration;
-  }
-
-  if (currentBatch.length) {
-    batches.push({ videos: currentBatch, total: currentBatchDuration });
-  }
-
-  let output = `Total Video Duration: ${formatTime(totalDuration)}\n\n`;
-  batches.forEach((batch, i) => {
-    output += `Batch ${i + 1} (Total: ${formatTime(batch.total)}):\n`;
-    batch.videos.forEach(v => {
-      output += `  - ${v.name} (${formatTime(v.duration)})\n`;
-    });
-    output += "\n";
-  });
-
-  fs.writeFileSync(batchFile, output);
-  console.log("Batches saved to", batchFile);
-}
-
+// Format seconds → "Xh Ym"
 function formatTime(seconds) {
   let h = Math.floor(seconds / 3600);
   let m = Math.floor((seconds % 3600) / 60);
   return `${h}h ${m}m`;
 }
 
-async function run() {
-  const input = await askUser("Enter max hours per batch (e.g., 2): ");
-  const hours = parseFloat(input);
+async function groupVideos(maxHours, overflowMinutes) {
+  const MAX = maxHours * 3600;
+  const OVERFLOW = overflowMinutes * 60;
 
-  if (isNaN(hours) || hours <= 0) {
-    console.error("Invalid input. Please enter a positive number.");
+  const VIDEO_EXT = [".mp4", ".mkv", ".mov", ".avi", ".wmv", ".flv"];
+
+  // Load supported files
+  let files = fs.readdirSync(videoDir).filter(f =>
+    VIDEO_EXT.includes(path.extname(f).toLowerCase())
+  );
+
+  // ✅ Natural numeric sorting
+  files.sort(naturalCompare);
+
+  let videoList = [];
+  let totalAllVideos = 0;
+
+  // Read durations
+  for (const file of files) {
+    try {
+      const duration = await getVideoDuration(path.join(videoDir, file));
+      videoList.push({ name: file, duration });
+      totalAllVideos += duration;
+    } catch (err) {
+      console.error("Error reading:", file, err);
+    }
+  }
+
+  let batches = [];
+  let currentBatch = [];
+  let currentTime = 0;
+
+  for (let v of videoList) {
+
+    // Standalone if longer than limit
+    if (v.duration > MAX) {
+      if (currentBatch.length) {
+        batches.push({ videos: currentBatch, total: currentTime });
+        currentBatch = [];
+        currentTime = 0;
+      }
+      batches.push({ videos: [v], total: v.duration });
+      continue;
+    }
+
+    // Fit into current batch
+    if (currentTime + v.duration <= MAX + OVERFLOW) {
+      currentBatch.push(v);
+      currentTime += v.duration;
+    } else {
+      batches.push({ videos: currentBatch, total: currentTime });
+      currentBatch = [v];
+      currentTime = v.duration;
+    }
+  }
+
+  if (currentBatch.length) {
+    batches.push({ videos: currentBatch, total: currentTime });
+  }
+
+  // Build output
+  let output = "";
+
+  batches.forEach((batch, i) => {
+    output += `Batch ${i + 1} (Total: ${formatTime(batch.total)}):\n`;
+    batch.videos.forEach(v =>
+      output += `  - ${v.name} (${formatTime(v.duration)})\n`
+    );
+    output += "\n";
+  });
+
+  // Summary
+  output += "=============================\n";
+  output += "FINAL SUMMARY\n";
+  output += "=============================\n";
+  output += `Total Batches: ${batches.length}\n`;
+  output += `Total Combined Duration: ${formatTime(totalAllVideos)}\n`;
+
+  fs.writeFileSync(batchFile, output);
+
+  console.log("\n✔️ Batches saved to", batchFile);
+  console.log("✔️ Total duration:", formatTime(totalAllVideos));
+}
+
+async function run() {
+  const h = parseFloat(await ask("Max hours per batch (e.g., 2): "));
+  const extra = parseFloat(await ask("Overflow minutes allowed (e.g., 20): "));
+
+  if (isNaN(h) || h <= 0 || isNaN(extra) || extra < 0) {
+    console.log("Invalid input.");
     return;
   }
-  // Verification Message
-  console.log(`\n✅ Creating batches with max ${hours} hour(s) each...\n`);
-  await groupVideos(hours);
+
+  console.log(`\nCreating batches with ~${h}h + ${extra}m overflow...\n`);
+  await groupVideos(h, extra);
 }
 
 run();
