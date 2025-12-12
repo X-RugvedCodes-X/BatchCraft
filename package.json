@@ -23,7 +23,8 @@
   "license": "MIT",
   "dependencies": {
     "fluent-ffmpeg": "^2.1.2",
-    "natural": "^6.2.3"
+    "natural": "^6.2.3",
+    "natural-compare-lite": "^1.4.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.3"
